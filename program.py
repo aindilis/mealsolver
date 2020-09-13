@@ -1,6 +1,12 @@
 import pandas as pd
 import pulp as pl
 
+def intersection(l1,l2):
+    return list(set(l1) & set(l2))
+
+def difference(l1,l2):
+    return list(set(l1) - set(l2))
+
 def get_missing_nutrients(daily, foods):
   return [
     nutrient
@@ -10,10 +16,10 @@ def get_missing_nutrients(daily, foods):
   ]
 
 def get_dfs(csv_daily, csv_foods):
-  daily = pd.read_csv(csv_daily)
-  foods = pd.read_csv(csv_foods).fillna(0)
+    daily = pd.read_csv(csv_daily).sort_values(by='name').set_index('name')
+    foods_input = pd.read_csv(csv_foods).sort_values(by='name').set_index('name').fillna(0)
 
-  unnecessary = [
+    unnecessary = [
         "chromium_mcg",
         "linoleic_acid_g",
         "iodine_mcg",
@@ -22,41 +28,48 @@ def get_dfs(csv_daily, csv_foods):
         "vitamin_b12_mcg",
         "vitamin_d_iu"
     ]
+    missing = get_missing_nutrients(daily,foods_input)
     
-  nutritions_list = [i for i in sorted(daily.name.to_list()) if i not in unnecessary]
-    
-  daily = daily[daily["name"].isin(nutritions_list)]
-  daily = daily.sort_values(by="name", ignore_index=True)
-  
-  foods = foods[["food_group", "name"] + nutritions_list]
-  foods['max'] = 10000 # for now, let's say max value is 1kg for all foods
-  foods['cost'] = 1
-  foods['var'] = foods.apply(
-    lambda food: pl.LpVariable(food['name'], 0, food['max']),
-    axis=1
-  )
-  
-  missing = get_missing_nutrients(daily,foods)
-  daily = daily[~daily["name"].isin(missing)].sort_values(by="name",ignore_index=True)
-  
-  return daily, foods
+    excluded = unnecessary + missing
+
+    nutrient_list = difference(daily.index, excluded)
+
+    daily = daily[daily.index.isin(nutrient_list)]
  
-def add_constraints(daily, foods):
+    # the `.copy()` is to suppress the pandas `SettingWithCopyWarning`
+    foods = foods_input[['food_group']].copy()
+    foods['max'] = 10000 # for now, let's say max value is 1kg for all foods
+    foods['cost'] = 1
+    foods['amount_var'] = foods.apply(
+        lambda food: pl.LpVariable(food.name, 0, food['max']),
+        axis=1
+    )
+    
+    nutrients_matrix = foods_input[nutrient_list].T
+    
+    return daily, foods, nutrients_matrix
+
+
+def add_constraints(daily, foods, nutrients_matrix):
     prob = pl.LpProblem("meal_planner", pl.LpMinimize)
    
-    nutrients = foods.drop(columns=['food_group','name','max','cost','var'])
-
-    intake = nutrients.T.dot(foods['var'])
-    cost = foods['cost'].dot(foods['var'])
-
+    N = nutrients_matrix
+    f = foods['amount_var']
+    c = foods['cost']
+ 
+    daily['intake'] = N @ f
+    cost            = c @ f
 
     # constraints:
-    for nutrient, min_val, max_val in daily.values.tolist():
-        prob += intake[nutrient] >= min_val
+    # should be basically just:
+    #   daily['intake'] >= daily['min']
+    #   daily['intake'] <= daily['max']
+    for min_val, max_val, intake in daily.values.tolist():
+        prob += intake >= min_val
  
         # if we could do inf for max_val then we wouldn't need the conditional
         if not pd.isna(max_val):
-            prob += intake[nutrient] <= max_val
+            prob += intake <= max_val
 
     # objective:
     prob += cost
@@ -65,25 +78,28 @@ def add_constraints(daily, foods):
     
     
 def get_values(foods_df):
-  foods_df['amount'] = foods_df.apply(lambda food: pl.value(food['var']), axis = 1)
-  included = foods_df[foods_df['amount'] > 0]
-  return included[['name','amount']]
+    foods_df['amount'] = foods_df.apply(
+          lambda food: pl.value(food['amount_var']),
+          axis = 1
+    )
+    included = foods_df[foods_df['amount'] > 0]
+    return included[['amount']]
     
 def example():
-  return get_dfs("daily_intake.csv", "foods.csv")
+    return get_dfs("daily_intake.csv", "foods.csv")
   
 def full_example():
-  daily, foods = example()
-  prob = add_constraints(daily, foods)
-  status = prob.solve(pl.PULP_CBC_CMD(msg=0))
-  return get_values(foods)
+    daily, foods, nutrients_matrix = example()
+    prob = add_constraints(daily, foods, nutrients_matrix)
+    status = prob.solve(pl.PULP_CBC_CMD(msg=0))
+    return get_values(foods)
 
 def main():
-    daily, foods = example()
+    daily, foods, nutrients_matrix = example()
     n = len(daily.index)
     for i in range(1,n):
-      prob = add_constraints(daily.head(i), foods)
-      status = prob.solve(pl.PULP_CBC_CMD(msg = 0))
-      print("{0}: {1}: {2}".format(i, daily.loc[i-1]['name'], pl.LpStatus[status]))
-      if pl.LpStatus[status] == 'Infeasible':
-        break
+        prob = add_constraints(daily.head(i), foods, nutrients_matrix)
+        status = prob.solve(pl.PULP_CBC_CMD(msg = 0))
+        print("{0}: {1}: {2}".format(i, daily.iloc[i-1]['name'], pl.LpStatus[status]))
+        if pl.LpStatus[status] == 'Infeasible':
+            break
