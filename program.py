@@ -43,17 +43,23 @@ def get_dfs(csv_daily, csv_foods):
  
 def add_constraints(daily, foods):
     prob = pl.LpProblem("meal_planner", pl.LpMinimize)
-    
+   
+    nutrients = foods.drop(columns=['food_group','name','max','cost','var'])
+
+    intake = nutrients.T.dot(foods['var'])
+    cost = foods['cost'].dot(foods['var'])
+
+
     # constraints:
-    for nutrition, min_val, max_val in daily.values.tolist():
-        nutrient_amount = (foods[nutrition]*foods['var']).sum()
-        prob += nutrient_amount >= min_val
-        if not pd.isna(max_val):
-            prob += nutrient_amount <= max_val
-            
+    for nutrient, min_val, max_val in daily.values.tolist():
+        prob += intake[nutrient] >= min_val
  
+        # if we could do inf for max_val then we wouldn't need the conditional
+        if not pd.isna(max_val):
+            prob += intake[nutrient] <= max_val
+
     # objective:
-    prob += (foods['cost']*foods['var']).sum()
+    prob += cost
  
     return prob
     
@@ -64,7 +70,7 @@ def get_values(foods_df):
   return included[['name','amount']]
     
 def example():
-  return get_dfs("/var/lib/myfrdcsa/codebases/independent/meal-planner-of-mhmd/attempts/1/daily_intake.csv", "/var/lib/myfrdcsa/codebases/independent/meal-planner-of-mhmd/attempts/1/foods.csv")
+  return get_dfs("daily_intake.csv", "foods.csv")
   
 def full_example():
   daily, foods = example()
@@ -81,5 +87,3 @@ def main():
       print("{0}: {1}: {2}".format(i, daily.loc[i-1]['name'], pl.LpStatus[status]))
       if pl.LpStatus[status] == 'Infeasible':
         break
-
-main()
