@@ -1,0 +1,47 @@
+andrewdo@ai2:~/meal-planner/new$ python3
+Python 3.7.3 (default, Jul 25 2020, 13:03:44) 
+[GCC 8.3.0] on linux
+Type "help", "copyright", "credits" or "license" for more information.
+>>> import program
+1: calcium_mg: Optimal
+2: calories_kcal: Optimal
+3: choline_mg: Optimal
+4: copper_mg: Optimal
+5: fiber_g: Optimal
+6: fluoride_mcg: Optimal
+7: folate_mcg: Optimal
+8: histidine_mg_kg: Optimal
+9: iron_mg: Optimal
+10: isoleucine_mg_kg: Optimal
+11: leucine_mg_kg: Optimal
+12: lysine_mg_kg: Optimal
+13: magnesium_mg: Optimal
+14: manganese_mg: Optimal
+15: methionine_and_cysteine_mg_kg: Optimal
+16: niacin_mg: Optimal
+17: pantothenic_acid_mg: Optimal
+18: phenylalanine_and_tyrosine_mg_kg: Optimal
+19: phosphorus_mg: Optimal
+20: potassium_mg: Optimal
+21: protein_g_kg: Optimal
+22: riboflavin_mg: Optimal
+23: selenium_mcg: Optimal
+24: sodium_mg: Optimal
+25: thiamin_mg: Optimal
+26: threonine_mg_kg: Optimal
+27: tryptophan_mg_kg: Optimal
+28: valine_mg_kg: Optimal
+29: vitamin_a_mcg: Optimal
+30: vitamin_b6_mg: Optimal
+31: vitamin_c_mg: Optimal
+32: vitamin_e_mg: Optimal
+33: vitamin_k_mcg: Optimal
+>>> program.full_example()
+                          name     amount
+32  Dry Roasted Pistachio Nuts   2.421314
+45           Broccoli (Cooked)   0.518573
+49               Cooked Celery  13.191981
+54             Cooked Tomatoes  21.014955
+57                    Cucumber   6.096698
+66      White Button Mushrooms   4.076494
+>>> 
