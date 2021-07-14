@@ -1,105 +1,96 @@
 import pandas as pd
 import pulp as pl
 
-def intersection(l1,l2):
-    return list(set(l1) & set(l2))
+class NutrientRequirements:
+    def __init__(self,csv, unnecessary = []):
+        self.df = pd.read_csv(csv)          \
+                    .sort_values(by='name') \
+                    .set_index('name')
 
-def difference(l1,l2):
-    return list(set(l1) - set(l2))
+        self.unnecessary = unnecessary
 
-def get_missing_nutrients(daily, foods):
-  return [
-    nutrient
-    for nutrient in foods
-    if nutrient not in ['food_group','name']
-    and (foods[nutrient] == 0).all()
-  ]
+    def parse_units(self):
+        pass
 
-def get_dfs(csv_daily, csv_foods):
-    daily = pd.read_csv(csv_daily).sort_values(by='name').set_index('name')
-    foods_input = pd.read_csv(csv_foods).sort_values(by='name').set_index('name').fillna(0)
+class FoodNutrients:
+    def __init__(self,csv):
+        self.df = pd.read_csv(csv)          \
+                    .sort_values(by='name') \
+                    .set_index('name')      \
+                    .fillna(0)
+        self.df['max'] = 10000 # for now, let's say max value is 1kg for all foods
+        self.df['cost'] = 1
+        self.df['amount_var'] = self.df.apply(
+            lambda food: pl.LpVariable(food.name, 0, food['max']),
+            axis=1
+        )
 
-    unnecessary = [
-        "chromium_mcg",
-        "linoleic_acid_g",
-        "iodine_mcg",
-        "alpha_linolenic_acid_g",
-        "chloride_g",
-        "vitamin_b12_mcg",
-        "vitamin_d_iu"
-    ]
-    missing = get_missing_nutrients(daily,foods_input)
-    
-    excluded = unnecessary + missing
+    def missing_nutrients(self):
+        non_nutrient_columns = ['name', 'food_group']
+        return {
+            nutrient
+            for nutrient in self.df
+            if nutrient not in non_nutrient_columns
+            and (self.df[nutrient] == 0).all()
+        }
 
-    nutrient_list = difference(daily.index, excluded)
+class Problem:
+    def __init__(self, nutrient_table, food_table):
+        self.excluded = nutrient_table.unnecessary | food_table.missing_nutrients()
+        self.included = set(nutrient_table.df.index) - self.excluded
+        self.nutrient_table = nutrient_table.df[nutrient_table.df.index.isin(self.included)]
+        self.food_table = food_table
+        self.nutrient_matrix = self.food_table.df[self.included].T
+        self.add_constraints()
 
-    daily = daily[daily.index.isin(nutrient_list)]
- 
-    # the `.copy()` is to suppress the pandas `SettingWithCopyWarning`
-    foods = foods_input[['food_group']].copy()
-    foods['max'] = 10000 # for now, let's say max value is 1kg for all foods
-    foods['cost'] = 1
-    foods['amount_var'] = foods.apply(
-        lambda food: pl.LpVariable(food.name, 0, food['max']),
-        axis=1
+    def add_constraints(self):
+        self.prob = pl.LpProblem("meal_planner", pl.LpMinimize)
+
+        N = self.nutrient_matrix
+        f = self.food_table.df['amount_var']
+        c = self.food_table.df['cost']
+
+        # @ is Pandas operator for matrix multiplication / dot product
+        self.nutrient_table['intake']   = N @ f
+        cost                            = c @ f
+
+        # constraints:
+        # should be basically just:
+        #   daily['intake'] >= daily['min']
+        #   daily['intake'] <= daily['max']
+        for min_val, max_val, intake in self.nutrient_table.values.tolist():
+            self.prob += intake >= min_val
+
+            # if we could do inf for max_val then we wouldn't need the conditional
+            if not pd.isna(max_val):
+                self.prob += intake <= max_val
+
+        # objective:
+        self.prob += cost
+
+    def solve(self):
+        status = self.prob.solve(pl.PULP_CBC_CMD(msg=0))
+        foods_df = self.food_table.df
+        foods_df['amount'] = foods_df.apply(
+              lambda food: pl.value(food['amount_var']),
+              axis = 1
+        )
+        included = foods_df[foods_df['amount'] > 0]
+        return included[['amount']]
+
+
+def test():
+    nutrient_table = NutrientRequirements(
+        'daily_intake.csv',
+        {
+            "chromium_mcg",
+            "linoleic_acid_g",
+            "iodine_mcg",
+            "alpha_linolenic_acid_g",
+            "chloride_g",
+            "vitamin_b12_mcg",
+            "vitamin_d_iu"
+        }
     )
-    
-    nutrients_matrix = foods_input[nutrient_list].T
-    
-    return daily, foods, nutrients_matrix
-
-
-def add_constraints(daily, foods, nutrients_matrix):
-    prob = pl.LpProblem("meal_planner", pl.LpMinimize)
-   
-    N = nutrients_matrix
-    f = foods['amount_var']
-    c = foods['cost']
- 
-    daily['intake'] = N @ f
-    cost            = c @ f
-
-    # constraints:
-    # should be basically just:
-    #   daily['intake'] >= daily['min']
-    #   daily['intake'] <= daily['max']
-    for min_val, max_val, intake in daily.values.tolist():
-        prob += intake >= min_val
- 
-        # if we could do inf for max_val then we wouldn't need the conditional
-        if not pd.isna(max_val):
-            prob += intake <= max_val
-
-    # objective:
-    prob += cost
- 
-    return prob
-    
-    
-def get_values(foods_df):
-    foods_df['amount'] = foods_df.apply(
-          lambda food: pl.value(food['amount_var']),
-          axis = 1
-    )
-    included = foods_df[foods_df['amount'] > 0]
-    return included[['amount']]
-    
-def example():
-    return get_dfs("daily_intake.csv", "foods.csv")
-  
-def full_example():
-    daily, foods, nutrients_matrix = example()
-    prob = add_constraints(daily, foods, nutrients_matrix)
-    status = prob.solve(pl.PULP_CBC_CMD(msg=0))
-    return get_values(foods)
-
-def main():
-    daily, foods, nutrients_matrix = example()
-    n = len(daily.index)
-    for i in range(1,n):
-        prob = add_constraints(daily.head(i), foods, nutrients_matrix)
-        status = prob.solve(pl.PULP_CBC_CMD(msg = 0))
-        print("{0}: {1}: {2}".format(i, daily.iloc[i-1]['name'], pl.LpStatus[status]))
-        if pl.LpStatus[status] == 'Infeasible':
-            break
+    food_table = FoodNutrients('foods.csv')
+    return Problem(nutrient_table, food_table).solve()
