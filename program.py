@@ -2,7 +2,7 @@ import pandas as pd
 import pulp as pl
 
 class NutrientRequirements:
-    def __init__(self,csv, unnecessary = []):
+    def __init__(self, csv, unnecessary = []):
         self.df = pd.read_csv(csv)          \
                     .sort_values(by='name') \
                     .set_index('name')
@@ -34,11 +34,15 @@ class FoodNutrients:
             and (self.df[nutrient] == 0).all()
         }
 
+class Log:
+    def __init__(self,csv):
+        self.df = pd.read_csv(csv)
+
 class Problem:
     def __init__(self, nutrient_table, food_table):
         self.excluded = nutrient_table.unnecessary | food_table.missing_nutrients()
         self.included = set(nutrient_table.df.index) - self.excluded
-        self.nutrient_table = nutrient_table.df[nutrient_table.df.index.isin(self.included)]
+        self.nutrient_table = nutrient_table.df[nutrient_table.df.index.isin(self.included)].copy()
         self.food_table = food_table
         self.nutrient_matrix = self.food_table.df[self.included].T
         self.add_constraints()
@@ -52,12 +56,16 @@ class Problem:
 
         # @ is Pandas operator for matrix multiplication / dot product
         self.nutrient_table['intake']   = N @ f
-        cost                            = c @ f
+        self.cost                       = c @ f
 
         # constraints:
         # should be basically just:
         #   daily['intake'] >= daily['min']
         #   daily['intake'] <= daily['max']
+
+        # or:
+        # daily['min'] <= N @ f <= daily['max']
+        # minimize(c @ f)
         for min_val, max_val, intake in self.nutrient_table.values.tolist():
             self.prob += intake >= min_val
 
@@ -66,7 +74,7 @@ class Problem:
                 self.prob += intake <= max_val
 
         # objective:
-        self.prob += cost
+        self.prob += self.cost
 
     def solve(self):
         status = self.prob.solve(pl.PULP_CBC_CMD(msg=0))
@@ -76,7 +84,7 @@ class Problem:
               axis = 1
         )
         included = foods_df[foods_df['amount'] > 0]
-        return included[['amount']]
+        self.recipe = included[['amount']].copy()
 
 
 def test():
@@ -93,4 +101,11 @@ def test():
         }
     )
     food_table = FoodNutrients('foods.csv')
-    return Problem(nutrient_table, food_table).solve()
+    return Problem(nutrient_table, food_table)
+
+def test2():
+    return Log('test_log.csv').df
+
+
+def test3():
+    return pd.read_csv("test_nutrient_profiles.csv")
