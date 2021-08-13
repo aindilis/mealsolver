@@ -1,10 +1,8 @@
 # mealsolver
 Logic-based meal optimizer
 
-# Running example
->> python3
-import program
-program.full_example()
+# Running examples:
+Open any of the .ipynb files in Jupyter Notebook.
 
 # Nutrients list
 fndds_nutrients.csv comes from:
